@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
 import 'package:wifi_scan/wifi_scan.dart';
+import 'package:signal_strength_indicator/signal_strength_indicator.dart';
+import 'dart:math';
 
 void main() {
   runApp(const MyApp());
@@ -20,20 +22,25 @@ class MyApp extends StatefulWidget {
 class _MyAppState extends State<MyApp> {
   List<WiFiAccessPoint> accessPoints = <WiFiAccessPoint>[];
   StreamSubscription<List<WiFiAccessPoint>>? subscription;
-  bool shouldCheckCan = true;
 
   bool get isStreaming => subscription != null;
+  Timer? timer;
+
+  @override
+  void initState() {
+    super.initState();
+    timer =
+        Timer.periodic(Duration(seconds: 5), (Timer t) => _startScan(context));
+  }
 
   Future<void> _startScan(BuildContext context) async {
     // check if "can" startScan
-    if (shouldCheckCan) {
-      // check if can-startScan
-      final can = await WiFiScan.instance.canStartScan();
-      // if can-not, then show error
-      if (can != CanStartScan.yes) {
-        if (mounted) kShowSnackBar(context, "Cannot start scan: $can");
-        return;
-      }
+    // check if can-startScan
+    final can = await WiFiScan.instance.canStartScan();
+    // if can-not, then show error
+    if (can != CanStartScan.yes) {
+      if (mounted) kShowSnackBar(context, "Cannot start scan: $can");
+      return;
     }
 
     // call startScan API
@@ -44,16 +51,15 @@ class _MyAppState extends State<MyApp> {
   }
 
   Future<bool> _canGetScannedResults(BuildContext context) async {
-    if (shouldCheckCan) {
-      // check if can-getScannedResults
-      final can = await WiFiScan.instance.canGetScannedResults();
-      // if can-not, then show error
-      if (can != CanGetScannedResults.yes) {
-        if (mounted) kShowSnackBar(context, "Cannot get scanned results: $can");
-        accessPoints = <WiFiAccessPoint>[];
-        return false;
-      }
+    // check if can-getScannedResults
+    final can = await WiFiScan.instance.canGetScannedResults();
+    // if can-not, then show error
+    if (can != CanGetScannedResults.yes) {
+      if (mounted) kShowSnackBar(context, "Cannot get scanned results: $can");
+      accessPoints = <WiFiAccessPoint>[];
+      return false;
     }
+
     return true;
   }
 
@@ -79,6 +85,7 @@ class _MyAppState extends State<MyApp> {
 
   @override
   void dispose() {
+    timer?.cancel();
     super.dispose();
     // stop subscription for scanned results
     _stopListeningToScanResults();
@@ -103,14 +110,7 @@ class _MyAppState extends State<MyApp> {
     return MaterialApp(
       home: Scaffold(
         appBar: AppBar(
-          title: const Text('Plugin example app'),
-          actions: [
-            _buildToggle(
-                label: "Check can?",
-                value: shouldCheckCan,
-                onChanged: (v) => setState(() => shouldCheckCan = v),
-                activeColor: Colors.purple)
-          ],
+          title: const Text('Wifi Scanner'),
         ),
         body: Builder(
           builder: (context) => Padding(
@@ -122,18 +122,8 @@ class _MyAppState extends State<MyApp> {
                 Row(
                   mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.perm_scan_wifi),
-                      label: const Text('SCAN'),
-                      onPressed: () async => _startScan(context),
-                    ),
-                    ElevatedButton.icon(
-                      icon: const Icon(Icons.refresh),
-                      label: const Text('GET'),
-                      onPressed: () async => _getScannedResults(context),
-                    ),
                     _buildToggle(
-                      label: "STREAM",
+                      label: "Сканировать сети",
                       value: isStreaming,
                       onChanged: (shouldStream) async => shouldStream
                           ? await _startListeningToScanResults(context)
@@ -145,7 +135,7 @@ class _MyAppState extends State<MyApp> {
                 Flexible(
                   child: Center(
                     child: accessPoints.isEmpty
-                        ? const Text("NO SCANNED RESULTS")
+                        ? const Text("Нет доступных сетей")
                         : ListView.builder(
                             itemCount: accessPoints.length,
                             itemBuilder: (context, i) =>
@@ -188,7 +178,8 @@ class _AccessPointTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final title = accessPoint.ssid.isNotEmpty ? accessPoint.ssid : "**EMPTY**";
+    final title =
+        accessPoint.ssid.isNotEmpty ? accessPoint.ssid : "Неизвестная сеть";
     final signalIcon = accessPoint.level >= -80
         ? Icons.signal_wifi_4_bar
         : Icons.signal_wifi_0_bar;
@@ -204,21 +195,33 @@ class _AccessPointTile extends StatelessWidget {
           content: Column(
             mainAxisSize: MainAxisSize.min,
             children: [
-              _buildInfo("BSSDI", accessPoint.bssid),
-              _buildInfo("Capability", accessPoint.capabilities),
-              _buildInfo("frequency", "${accessPoint.frequency}MHz"),
-              _buildInfo("level", accessPoint.level),
-              _buildInfo("standard", accessPoint.standard),
-              _buildInfo(
-                  "centerFrequency0", "${accessPoint.centerFrequency0}MHz"),
-              _buildInfo(
-                  "centerFrequency1", "${accessPoint.centerFrequency1}MHz"),
-              _buildInfo("channelWidth", accessPoint.channelWidth),
-              _buildInfo("isPasspoint", accessPoint.isPasspoint),
-              _buildInfo(
-                  "operatorFriendlyName", accessPoint.operatorFriendlyName),
-              _buildInfo("venueName", accessPoint.venueName),
-              _buildInfo("is80211mcResponder", accessPoint.is80211mcResponder),
+              /*SignalStrengthIndicator.sector(
+                value: (accessPoint.level * -1 + 10) / 100,
+                size: 120,
+                barCount: 5,
+                spacing: 0.5,
+                activeColor: Colors.blue,
+              ),*/
+              Transform.rotate(
+                angle: -45 * pi / 180,
+                origin: const Offset(-15, 0),
+                child: SignalStrengthIndicator.sector(
+                  value: (accessPoint.level * -1 + 10) / 100,
+                  size: 100,
+                  spacing: -0.01,
+                ),
+              ),
+              Divider(),
+              _buildInfo("Название", accessPoint.ssid),
+              _buildInfo("MAC адрес", accessPoint.bssid),
+              _buildInfo("Возможности", accessPoint.capabilities),
+              _buildInfo("Примерное расстояние",
+                  "${((27.55 - (20 * log(accessPoint.frequency)) + accessPoint.level.abs()) / -5.0).toStringAsFixed(1)} метр"),
+              _buildInfo("Частота", "${accessPoint.frequency}MHz"),
+              _buildInfo("Уровень сигнала", "${accessPoint.level}dBm"),
+              _buildInfo("Стандарт сети", accessPoint.standard),
+              _buildInfo("Частота 1", "${accessPoint.centerFrequency0}MHz"),
+              _buildInfo("Ширина канала", "${accessPoint.channelWidth}MHz"),
             ],
           ),
         ),
@@ -230,7 +233,6 @@ class _AccessPointTile extends StatelessWidget {
 /// Show snackbar.
 void kShowSnackBar(BuildContext context, String message) {
   if (kDebugMode) print(message);
-  ScaffoldMessenger.of(context)
-    ..hideCurrentSnackBar()
-    ..showSnackBar(SnackBar(content: Text(message)));
+  //ScaffoldMessenger.of(context).hideCurrentSnackBar();
+  //ScaffoldMessenger.of(context).showSnackBar(SnackBar(content: Text(message)));
 }
