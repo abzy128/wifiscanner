@@ -1,18 +1,18 @@
 import 'dart:async';
-
 import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+import 'package:flutter_blue/flutter_blue.dart';
+import 'package:sound_generator/waveTypes.dart';
 import 'package:wifi_scan/wifi_scan.dart';
 import 'package:signal_strength_indicator/signal_strength_indicator.dart';
 import 'dart:math';
+import 'package:sound_generator/sound_generator.dart';
 
 void main() {
   runApp(const MyApp());
 }
 
-/// Example app for wifi_scan plugin.
 class MyApp extends StatefulWidget {
-  /// Default constructor for [MyApp] widget.
   const MyApp({Key? key}) : super(key: key);
 
   @override
@@ -20,40 +20,46 @@ class MyApp extends StatefulWidget {
 }
 
 class _MyAppState extends State<MyApp> {
+  bool play = true;
+  List<BluetoothDevice> bluetoothDevices = <BluetoothDevice>[];
   List<WiFiAccessPoint> accessPoints = <WiFiAccessPoint>[];
   StreamSubscription<List<WiFiAccessPoint>>? subscription;
-
   bool get isStreaming => subscription != null;
   Timer? timer;
+  Timer? updateTimer;
 
   @override
   void initState() {
     super.initState();
-    timer =
-        Timer.periodic(Duration(seconds: 5), (Timer t) => _startScan(context));
+    timer = Timer.periodic(
+        const Duration(seconds: 5), (Timer t) => _startScan(context));
+  }
+
+  void _startTimer() {
+    updateTimer = Timer.periodic(
+        const Duration(seconds: 1), (Timer t) => _updateScan(context));
+  }
+
+  void _playSound(WiFiAccessPoint accessPoint) {
+    
   }
 
   Future<void> _startScan(BuildContext context) async {
-    // check if "can" startScan
-    // check if can-startScan
     final can = await WiFiScan.instance.canStartScan();
-    // if can-not, then show error
     if (can != CanStartScan.yes) {
       if (mounted) kShowSnackBar(context, "Cannot start scan: $can");
       return;
     }
 
-    // call startScan API
     final result = await WiFiScan.instance.startScan();
     if (mounted) kShowSnackBar(context, "startScan: $result");
-    // reset access points.
-    setState(() => accessPoints = <WiFiAccessPoint>[]);
+    //setState(() => accessPoints = <WiFiAccessPoint>[]);
   }
 
+  Future<void> _updateScan(BuildContext context) async {}
+
   Future<bool> _canGetScannedResults(BuildContext context) async {
-    // check if can-getScannedResults
     final can = await WiFiScan.instance.canGetScannedResults();
-    // if can-not, then show error
     if (can != CanGetScannedResults.yes) {
       if (mounted) kShowSnackBar(context, "Cannot get scanned results: $can");
       accessPoints = <WiFiAccessPoint>[];
@@ -65,7 +71,6 @@ class _MyAppState extends State<MyApp> {
 
   Future<void> _getScannedResults(BuildContext context) async {
     if (await _canGetScannedResults(context)) {
-      // get scanned results
       final results = await WiFiScan.instance.getScannedResults();
       setState(() => accessPoints = results);
     }
@@ -85,13 +90,12 @@ class _MyAppState extends State<MyApp> {
 
   @override
   void dispose() {
+    SoundGenerator.release();
     timer?.cancel();
-    super.dispose();
-    // stop subscription for scanned results
     _stopListeningToScanResults();
+    super.dispose();
   }
 
-  // build toggle with label
   Widget _buildToggle({
     String? label,
     bool value = false,
@@ -108,59 +112,111 @@ class _MyAppState extends State<MyApp> {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      home: Scaffold(
-        appBar: AppBar(
-          title: const Text('Wifi Scanner'),
-        ),
-        body: Builder(
-          builder: (context) => Padding(
-            padding: const EdgeInsets.symmetric(vertical: 12, horizontal: 20),
-            child: Column(
-              mainAxisSize: MainAxisSize.max,
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                  children: [
-                    _buildToggle(
-                      label: "Сканировать сети",
-                      value: isStreaming,
-                      onChanged: (shouldStream) async => shouldStream
-                          ? await _startListeningToScanResults(context)
-                          : _stopListeningToScanResults(),
-                    ),
-                  ],
+        home: Scaffold(
+      body: DefaultTabController(
+        length: 3,
+        child: Scaffold(
+            appBar: AppBar(
+              title: const Text('Wifi Scanner'),
+              actions: [
+                IconButton(
+                  icon: (play) ? Icon(Icons.volume_up) : Icon(Icons.volume_off),
+                  onPressed: () => setState(() => play = !play),
                 ),
-                const Divider(),
-                Flexible(
-                  child: Center(
-                    child: accessPoints.isEmpty
-                        ? const Text("Нет доступных сетей")
-                        : ListView.builder(
-                            itemCount: accessPoints.length,
-                            itemBuilder: (context, i) =>
-                                _AccessPointTile(accessPoint: accessPoints[i])),
-                  ),
+                IconButton(
+                  icon: const Icon(Icons.refresh),
+                  onPressed: () => _getScannedResults(context),
+                ),
+                _buildToggle(
+                  label: "Сканировать",
+                  value: isStreaming,
+                  onChanged: (value) {
+                    if (value) {
+                      _startListeningToScanResults(context);
+                    } else {
+                      _stopListeningToScanResults();
+                    }
+                  },
+                  activeColor: Colors.green,
                 ),
               ],
+              bottom: const TabBar(tabs: [
+                Tab(
+                  icon: Icon(Icons.wifi),
+                ),
+                Tab(
+                  icon: Icon(Icons.bluetooth),
+                ),
+                Tab(icon: Icon(Icons.radar)),
+              ]),
             ),
-          ),
-        ),
+            body: TabBarView(
+              children: [
+                Scaffold(
+                  body: Builder(
+                    builder: (context) => Padding(
+                      padding: const EdgeInsets.symmetric(
+                          vertical: 12, horizontal: 20),
+                      child: Column(
+                          mainAxisSize: MainAxisSize.max,
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Flexible(
+                              child: Center(
+                                child: accessPoints.isEmpty
+                                    ? const Text("Нет доступных сетей")
+                                    : ListView.builder(
+                                        itemCount: accessPoints.length,
+                                        itemBuilder: (context, i) =>
+                                            _AccessPointTile(
+                                                accessPoint: accessPoints[i])),
+                              ),
+                            ),
+                          ]),
+                    ),
+                  ),
+                ),
+                Scaffold(
+                    body: Builder(
+                        builder: (context) => Padding(
+                              padding: const EdgeInsets.symmetric(
+                                  vertical: 12, horizontal: 20),
+                              child: Column(
+                                  mainAxisSize: MainAxisSize.max,
+                                  crossAxisAlignment: CrossAxisAlignment.start,
+                                  children: [
+                                    Flexible(
+                                        child: Center(
+                                            child: const Text("В разработке"))),
+                                  ]),
+                            ))),
+                Scaffold(
+                    body: Builder(
+                  builder: (context) => Padding(
+                    padding: const EdgeInsets.symmetric(
+                        vertical: 12, horizontal: 20),
+                    child: Column(
+                        mainAxisSize: MainAxisSize.max,
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Flexible(
+                              child: Center(child: const Text("В разработке")))
+                        ]),
+                  ),
+                ))
+              ],
+            )),
       ),
-    );
+    ));
   }
 }
 
-/// Show tile for AccessPoint.
-///
-/// Can see details when tapped.
 class _AccessPointTile extends StatelessWidget {
   final WiFiAccessPoint accessPoint;
 
   const _AccessPointTile({Key? key, required this.accessPoint})
       : super(key: key);
 
-  // build row that can display info, based on label: value pair.
   Widget _buildInfo(String label, dynamic value) => Container(
         decoration: const BoxDecoration(
           border: Border(bottom: BorderSide(color: Colors.grey)),
@@ -184,53 +240,46 @@ class _AccessPointTile extends StatelessWidget {
         ? Icons.signal_wifi_4_bar
         : Icons.signal_wifi_0_bar;
     return ListTile(
-      visualDensity: VisualDensity.compact,
-      leading: Icon(signalIcon),
-      title: Text(title),
-      subtitle: Text(accessPoint.capabilities),
-      onTap: () => showDialog(
-        context: context,
-        builder: (context) => AlertDialog(
-          title: Text(title),
-          content: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              /*SignalStrengthIndicator.sector(
-                value: (accessPoint.level * -1 + 10) / 100,
-                size: 120,
-                barCount: 5,
-                spacing: 0.5,
-                activeColor: Colors.blue,
-              ),*/
-              Transform.rotate(
-                angle: -45 * pi / 180,
-                origin: const Offset(-15, 0),
-                child: SignalStrengthIndicator.sector(
-                  value: (accessPoint.level * -1 + 10) / 100,
-                  size: 100,
-                  spacing: -0.01,
-                ),
+        visualDensity: VisualDensity.compact,
+        leading: Icon(signalIcon),
+        title: Text(title),
+        subtitle: Text(accessPoint.capabilities),
+        onTap: () {
+          showDialog(
+            context: context,
+            builder: (context) => AlertDialog(
+              title: Text(title),
+              content: Column(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Transform.rotate(
+                    angle: -45 * pi / 180,
+                    origin: const Offset(-15, 0),
+                    child: SignalStrengthIndicator.sector(
+                      value: (accessPoint.level * -1 + 10) / 100,
+                      size: 100,
+                      spacing: -0.01,
+                    ),
+                  ),
+                  const Divider(),
+                  _buildInfo("Название", accessPoint.ssid),
+                  _buildInfo("MAC адрес", accessPoint.bssid),
+                  _buildInfo("Возможности", accessPoint.capabilities),
+                  _buildInfo("Примерное расстояние",
+                      "${((27.55 - (20 * log(accessPoint.frequency)) + accessPoint.level.abs()) / -5.0).toStringAsFixed(1)} метр"),
+                  _buildInfo("Частота", "${accessPoint.frequency}MHz"),
+                  _buildInfo("Уровень сигнала", "${accessPoint.level}dBm"),
+                  _buildInfo("Стандарт сети", accessPoint.standard),
+                  _buildInfo("Частота", "${accessPoint.centerFrequency0}MHz"),
+                  _buildInfo("Ширина канала", "${accessPoint.channelWidth}MHz"),
+                ],
               ),
-              Divider(),
-              _buildInfo("Название", accessPoint.ssid),
-              _buildInfo("MAC адрес", accessPoint.bssid),
-              _buildInfo("Возможности", accessPoint.capabilities),
-              _buildInfo("Примерное расстояние",
-                  "${((27.55 - (20 * log(accessPoint.frequency)) + accessPoint.level.abs()) / -5.0).toStringAsFixed(1)} метр"),
-              _buildInfo("Частота", "${accessPoint.frequency}MHz"),
-              _buildInfo("Уровень сигнала", "${accessPoint.level}dBm"),
-              _buildInfo("Стандарт сети", accessPoint.standard),
-              _buildInfo("Частота 1", "${accessPoint.centerFrequency0}MHz"),
-              _buildInfo("Ширина канала", "${accessPoint.channelWidth}MHz"),
-            ],
-          ),
-        ),
-      ),
-    );
+            ),
+          );
+        });
   }
 }
 
-/// Show snackbar.
 void kShowSnackBar(BuildContext context, String message) {
   if (kDebugMode) print(message);
   //ScaffoldMessenger.of(context).hideCurrentSnackBar();
